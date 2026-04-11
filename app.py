@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import Bio
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -10,12 +9,13 @@ import os
 from io import BytesIO, StringIO
 import zipfile
 from datetime import datetime, timezone, timedelta
-KST = timezone(timedelta(hours=9))
-def now_kst(): return datetime.now(KST).strftime("%Y%m%d_%H%M")
 from docx import Document
 
-st.set_page_config(page_title="C. auris Lab Tool", page_icon="🧪", layout="wide")
-st.title("🧪 C. auris Allele Designer")
+# 한국 시간(UTC+9) 설정
+KST = timezone(timedelta(hours=9))
+
+st.set_page_config(page_title="Crypto Allele Designer", page_icon="🧪", layout="wide")
+st.title("🧪 Crypto Allele Designer")
 
 # ── 파일 체크 ──────────────────────────────────────────────────────────────────
 if not os.path.exists("genome.fasta") or not os.path.exists("annotation.gff"):
@@ -23,24 +23,21 @@ if not os.path.exists("genome.fasta") or not os.path.exists("annotation.gff"):
     st.stop()
 
 
-# ── 캐시된 파일 로딩 (KeyError 및 인코딩 방지 로직 적용) ────────────────────────
-@st.cache_resource(show_spinner="FASTA 파일 로딩 중...")
+# ── 캐시된 파일 로딩 ────────────────────────────────────────────────────────────
+@st.cache_resource
 def load_genome():
-    # FASTA ID의 공백 및 숨은 문자로 인한 KeyError 원천 차단
-    records = list(SeqIO.parse("genome.fasta", "fasta"))
-    return {rec.id.split()[0].strip(): rec for rec in records}
+    return SeqIO.to_dict(SeqIO.parse("genome.fasta", "fasta"))
 
-@st.cache_resource(show_spinner="GFF 파일 로딩 중...")
+@st.cache_resource
 def load_gff():
-    # UTF-8 BOM(바이트 순서 표시) 문제 등 인코딩 오류 방지를 위해 utf-8-sig 사용
-    with open("annotation.gff", "r", encoding="utf-8-sig") as f:
+    with open("annotation.gff", "r") as f:
         return f.readlines()
 
 
 # ── Word 매뉴얼 생성 ────────────────────────────────────────────────────────────
 def generate_manual_word():
     doc = Document()
-    doc.add_heading('C. auris Allele Designer 사용 매뉴얼', 0)
+    doc.add_heading('Crypto Allele Designer 사용 매뉴얼', 0)
 
     doc.add_heading('1. 주의사항 (Notice)', level=1)
     doc.add_paragraph('• 교차 점검 필수: 본 도구는 연구 편의를 돕는 자동화 스크립트입니다. 출력된 최종 Allele(.gb) 서열과 프라이머 결합 위치는 실험 진행 전, SnapGene 등 시퀀스 뷰어 프로그램을 통해 반드시 직접 교차 점검(Cross-check)하시기 바랍니다.')
@@ -67,26 +64,26 @@ def generate_manual_word():
 def generate_template():
     output = BytesIO()
     df_p = pd.DataFrame({
-        'Gene ID': ['B9J08_002598', 'B9J08_002598'],
+        'Gene ID': ['CNAG_03701', 'CNAG_03701'],
         'Primer Name': ['L1', 'L2'],
         'Sequence': ['GCTTGTTGGCTTTCAGATG', 'CACTCGAATCCTGCATGCGTTGCCTTTTCTGTCGCC'],
     })
     df_pb_wt = pd.DataFrame({
-        'Gene ID': ['B9J08_002598'],
+        'Gene ID': ['CNAG_03701'],
         'Probe Start Primer': ['L1'],
         'Probe End Primer': ['L2'],
     })
     df_pb_mut = pd.DataFrame({
-        'Gene ID': ['B9J08_002598'],
+        'Gene ID': ['CNAG_03701'],
         'Probe Start Primer': ['NAT_F'],
         'Probe End Primer': ['NAT_R'],
     })
     df_e = pd.DataFrame({
-        'Gene ID': ['B9J08_002598'],
+        'Gene ID': ['CNAG_03701'],
         'Enzymes': ['ClaI'],
     })
     df_jobs = pd.DataFrame({
-        'Gene ID':            ['B9J08_002598'],
+        'Gene ID':            ['CNAG_03701'],
         'Output Mode':        ['both'],        
         'Insert Mode':        ['replace'],      
         'Primer A':           ['L2'],
@@ -94,7 +91,7 @@ def generate_template():
         'Primer B':           ['R1'],            
         'Primer B Overlap':   [''],
         'Insert GB Filename': ['PCTR4_NAT.gb'],
-        'Output Filename':    ['B9J08_002598_NAT'],  
+        'Output Filename':    ['CNAG_03701_NAT'],  
     })
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_p.to_excel(writer,      index=False, sheet_name='Primers')
@@ -129,26 +126,11 @@ with st.sidebar:
         index=0,
         help="by_gene: 동일한 유전자의 WT 및 MUT 파일을 하나의 폴더로 묶어 압축합니다."
     )
-    
-    st.divider()
-    st.subheader("📦 다운로드 방식")
-    download_mode = st.radio(
-        "결과 파일 제공 방식",
-        options=["individual", "zip"],
-        format_func=lambda x: "📄 개별 파일" if x == "individual" else "🗜️ ZIP 압축",
-        index=0,
-        key="download_mode"
-    )
-
-    st.divider()
-    if st.button("🧹 메모리(Cache) 비우기", help="GFF나 FASTA 파일을 바꿨거나 에러가 지속될 때 클릭하세요."):
-        st.cache_resource.clear()
-        st.success("캐시가 초기화되었습니다! 다시 실행해주세요.")
 
     st.divider()
     st.subheader("📥 다운로드 센터")
-    st.download_button("📂 엑셀 양식 다운로드", generate_template(), "Allele_Template.xlsx")
-    st.download_button("📘 사용 매뉴얼 (Word)", generate_manual_word(), "C_auris_Allele_Designer_Manual.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    st.download_button("📂 엑셀 양식 다운로드", generate_template(), "Crypto_Allele_Template.xlsx")
+    st.download_button("📘 사용 매뉴얼 (Word)", generate_manual_word(), "Crypto_Allele_Designer_Manual.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 # ── 탭 구성 ─────────────────────────────────────────────────────────────────────
@@ -202,74 +184,49 @@ def get_primer_coords(sub_seq, p_list):
 
 
 def get_wt_base(gene_id, flank):
-    user_input_id = gene_id.strip()
-    target_id_clean = user_input_id.replace("gene-", "")
-    target_id = f"gene-{target_id_clean}"
-        
+    clean_id = gene_id.strip()
     start_pos, end_pos, chrom, strand = None, None, None, 1
     cds_raw = []
-    
-    try:
-        lines = load_gff()
-        genome_dict = load_genome()
-    except Exception as e:
-        return None, f"파일 로딩 실패: {e}"
+    lines = load_gff(); genome_dict = load_genome()
 
     for line in lines:
         if line.startswith("#") or not line.strip(): continue
         parts = line.split("\t")
         if len(parts) < 9: continue
-        
-        if parts[2] == "gene":
-            attr = parts[8]
-            if f"ID={target_id}" in attr or f"Name={target_id_clean}" in attr or f"locus_tag={target_id_clean}" in attr:
-                chrom = parts[0].strip() 
-                start_pos = int(parts[3])
-                end_pos = int(parts[4])
-                strand = 1 if parts[6] == "+" else -1
-                break
+        if parts[2] not in ("gene", "protein_coding_gene"): continue
+        attr = parts[8]
+        if f"ID={clean_id};" in attr or attr.strip().endswith(f"ID={clean_id}"):
+            chrom = parts[0]; start_pos = int(parts[3]); end_pos = int(parts[4])
+            strand = 1 if parts[6] == "+" else -1; break
 
-    if not chrom:
-        return None, f"GFF 파일에서 '{target_id_clean}'(을)를 찾을 수 없습니다. Gene ID가 올바른지 확인하세요."
-
-    ref_key = None
-    for k in genome_dict.keys():
-        if chrom == k or chrom in k or k in chrom:
-            ref_key = k
-            break
-            
-    if not ref_key:
-        return None, f"FASTA 파일에서 염색체 '{chrom}'(을)를 찾을 수 없습니다."
+    if not chrom: return None, f"GFF 파일에서 Gene ID '{clean_id}'를 찾을 수 없습니다."
 
     for line in lines:
         if line.startswith("#") or not line.strip(): continue
         parts = line.split("\t")
         if len(parts) < 9: continue
-        
-        if parts[0].strip() == chrom and parts[2] == "CDS":
+        if parts[0] == chrom and parts[2] == "CDS":
             attr = parts[8]
-            if f"locus_tag={target_id_clean}" in attr or target_id_clean in attr:
+            if f"gene_id={clean_id};" in attr or f"gene_id={clean_id}" in attr:
                 cds_raw.append((int(parts[3]), int(parts[4])))
 
-    full_seq = genome_dict[ref_key].seq
-    ext_s = max(1, start_pos - flank)
-    ext_e = min(len(full_seq), end_pos + flank)
+    if chrom not in genome_dict: return None, f"FASTA 파일에서 Chromosome '{chrom}'을 찾을 수 없습니다."
+    full_seq = genome_dict[chrom].seq
+    ext_s = max(1, start_pos - flank); ext_e = min(len(full_seq), end_pos + flank)
     sub_seq = full_seq[ext_s - 1: ext_e]
     
-    if strand == -1:
-        sub_seq = sub_seq.reverse_complement()
+    if strand == -1: sub_seq = sub_seq.reverse_complement()
 
     cds_mapped = []
     for (s, e) in cds_raw:
-        if strand == 1:
-            s0, e0 = s - ext_s, e - ext_s + 1
-        else:
-            s0, e0 = ext_e - e, ext_e - s + 1
+        s0 = s - ext_s if strand == 1 else ext_e - e
+        e0 = e - ext_s + 1 if strand == 1 else ext_e - s + 1
         cds_mapped.append((s0, e0))
         
     cds_mapped = sorted(list(set(cds_mapped)), key=lambda x: x[0])
 
-    return {'sub_seq': sub_seq, 'cds_mapped': cds_mapped, 'gene_id': target_id_clean}, None
+    return {'sub_seq': sub_seq, 'cds_mapped': cds_mapped, 'gene_id': clean_id}, None
+
 
 def apply_topology(record, topo):
     record.annotations["topology"] = topo; return record
@@ -316,8 +273,7 @@ def process_wt(gene_id, p_list, pb_list, enz_names, flank, topo):
         base, err = get_wt_base(gene_id, flank)
         if err: return None, err
         sub_seq = base['sub_seq']
-        safe_id = base['gene_id']
-        record = SeqRecord(sub_seq, id=safe_id, name=f"{safe_id}_WT",
+        record = SeqRecord(sub_seq, id=gene_id, name=f"{gene_id}_WT",
                            annotations={"molecule_type": "DNA"})
         apply_topology(record, topo)
         
@@ -325,7 +281,7 @@ def process_wt(gene_id, p_list, pb_list, enz_names, flank, topo):
             record.features.append(SeqFeature(FeatureLocation(s0, e0, strand=1), type="CDS",
                                               qualifiers={"note": [f"E{i}"], "label": [f"E{i}"]}))
                                               
-        add_restriction_sites(record, sub_seq, enz_names, safe_id)
+        add_restriction_sites(record, sub_seq, enz_names, gene_id)
         add_primers_and_probes(record, sub_seq, p_list, pb_list)
         return record, None
     except Exception as e:
@@ -339,7 +295,6 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
         base, err = get_wt_base(gene_id, flank)
         if err: return None, err
         sub_seq = base['sub_seq']
-        safe_id = base['gene_id']
         ins_seq = ins_rec.seq if ins_rec else Seq("")
 
         def find_cut_point(primer_name, mode="end"):
@@ -397,7 +352,7 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
                 if e0 > cut_end:
                     shifted_cds.append((cut_end + ins_delta, e0 + ins_delta, i))
 
-        record = SeqRecord(mut_seq, id=safe_id, name=f"{safe_id}_MUT",
+        record = SeqRecord(mut_seq, id=gene_id, name=f"{gene_id}_MUT",
                            annotations={"molecule_type": "DNA"})
         apply_topology(record, topo)
 
@@ -417,7 +372,7 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
                 new_feat = SeqFeature(new_loc, type=feat.type, qualifiers=feat.qualifiers)
                 record.features.append(new_feat)
 
-        add_restriction_sites(record, mut_seq, enz_names, safe_id)
+        add_restriction_sites(record, mut_seq, enz_names, gene_id)
         add_primers_and_probes(record, mut_seq, p_list, pb_list)
         return record, None
     except Exception as e:
@@ -425,72 +380,38 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
 
 
 def write_records_to_zip(zf, jobs, flank, topo, zip_structure="flat"):
-    success, errors = 0, []
-    total = len(jobs)
-    progress = st.progress(0, text="파일 생성 처리 중...")
+    # ... (중략) ...
+    # KST 기준으로 현재 시간 정보 미리 생성
+    now_kst = datetime.now(KST)
+    zip_time = (now_kst.year, now_kst.month, now_kst.day, now_kst.hour, now_kst.minute, now_kst.second)
 
     for i, j in enumerate(jobs):
-        progress.progress((i + 1) / total, text=f"작업 진행 중: {j['id']}")
-        out_mode  = j.get('out_mode', 'wt')
-        
-        custom_name = j.get('out_name', j['id'])
-
-        prefix = f"{j['id']}/" if zip_structure == "by_gene" else ""
-
-        wt_fname  = f"{prefix}{j['id']} WT allele"
-        mut_fname = f"{prefix}{custom_name}"
-
+        # ... (중략) ...
         if out_mode in ('wt', 'both'):
-            wt_res, wt_err = process_wt(
-                j['id'], j['p_list'], j['pb_list_wt'], j['enz'], flank, topo)
+            wt_res, wt_err = process_wt(...)
             if wt_res:
-                buf = StringIO(); SeqIO.write(wt_res, buf, "genbank")
-                zf.writestr(f"{wt_fname}.gb", buf.getvalue())
+                buf = StringIO()
+                SeqIO.write(wt_res, buf, "genbank")
+                
+                # [수정 포인트] 파일 정보를 생성하여 한국 시간을 주입합니다.
+                info = zipfile.ZipInfo(f"{wt_fname}.gb", date_time=zip_time)
+                zf.writestr(info, buf.getvalue())
                 success += 1
-            else:
-                errors.append(f"❌ {j['id']} WT 작업 실패: {wt_err}")
-
+        
         if out_mode in ('mut', 'both'):
-            mut_res, mut_err = process_mutant(
-                j['id'], j['p_list'], j['pb_list_mut'], j['enz'], flank,
-                j['ins_rec'], j['mode'],
-                j['pa'], j['pb'], topo)
+            mut_res, mut_err = process_mutant(...)
             if mut_res:
-                buf = StringIO(); SeqIO.write(mut_res, buf, "genbank")
-                zf.writestr(f"{mut_fname}.gb", buf.getvalue())
+                buf = StringIO()
+                SeqIO.write(mut_res, buf, "genbank")
+                
+                # [수정 포인트] 여기도 마찬가지로 적용합니다.
+                info = zipfile.ZipInfo(f"{mut_fname}.gb", date_time=zip_time)
+                zf.writestr(info, buf.getvalue())
                 success += 1
-            else:
-                errors.append(f"❌ {j['id']} MUT 작업 실패: {mut_err}")
 
     progress.empty()
     return success, errors
 
-def offer_download(jobs, flank, topo, zip_struct, dl_mode, key_prefix):
-    """dl_mode에 따라 ZIP 또는 개별 파일로 다운로드 버튼 제공"""
-    ts = now_kst()
-    if dl_mode == "zip":
-        zip_buf = BytesIO()
-        with zipfile.ZipFile(zip_buf, "a") as zf:
-            success, errors = write_records_to_zip(zf, jobs, flank, topo, zip_struct)
-        if success:
-            st.success(f"✅ 총 {success}개의 파일 생성이 완료되었습니다. (Topology: {topo})")
-            st.download_button(f"📥 ZIP 다운로드 ({ts})", zip_buf.getvalue(),
-                               f"Results_{ts}.zip", key=f"{key_prefix}_zip")
-        return success, errors
-    else:
-        files_dict = {}
-        class DictZip:
-            def writestr(self, name, data): files_dict[name] = data
-            def __enter__(self): return self
-            def __exit__(self, *a): pass
-        success, errors = write_records_to_zip(DictZip(), jobs, flank, topo, zip_struct)
-        if success:
-            st.success(f"✅ 총 {success}개의 파일 생성이 완료되었습니다. (Topology: {topo})")
-            for fname, data in files_dict.items():
-                base = fname.rsplit('/', 1)[-1].rsplit('.', 1)[0]
-                st.download_button(f"📥 {fname}", data, f"{base}_{ts}.gb",
-                                   key=f"{key_prefix}_{fname}")
-        return success, errors
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ALLELE DESIGNER TAB
@@ -506,47 +427,61 @@ with tab_main:
 
     st.info("사이드바에서 통합 디자인 양식과 매뉴얼을 다운로드할 수 있습니다. 결과물은 WT, Mutant, 또는 둘 다 출력하도록 선택 가능합니다.")
 
-    # 🚀 사용자가 요청한 단순 WT 추출 모드가 여기에 추가되었습니다!
+    # 3가지 옵션으로 분리된 입력 방식
     input_mode = st.radio("입력 방식", ["🧬 단순 WT 추출 (Exon만)", "🖱️ 개별 수동 디자인", "📂 엑셀 일괄 업로드"],
                           horizontal=True, key="input_mode")
     st.divider()
 
+    # ───────────────────────────────────────────────────────────────────────────
+    # 1. 단순 WT 서열 추출
+    # ───────────────────────────────────────────────────────────────────────────
     if input_mode == "🧬 단순 WT 추출 (Exon만)":
         st.subheader("단순 WT 서열 추출")
         st.info("프라이머나 삽입 마커 등 복잡한 설정 없이, 유전자 이름만 입력하면 Exon(CDS) 위치가 자동으로 표기된 순수 WT 서열을 추출합니다. (빈칸이 있어도 에러 없이 작동합니다)")
-        
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            gene_id_simple = st.text_input("Gene ID", placeholder="예: B9J08_002598", key="simple_gene").strip()
-        with col_s2:
-            enz_simple = st.text_input("제한효소 (선택사항, 쉼표 구분)", placeholder="EcoRV, BamHI (없으면 비워두세요)", key="simple_enz").strip()
-            
-        if st.button("GenBank 파일 생성 🚀", key="simple_run"):
+
+        col1, col2 = st.columns(2)
+        with col1:
+            gene_id_simple = st.text_input("Gene ID", placeholder="예: CNAG_03701", key="s_gene").strip()
+        with col2:
+            enz_simple = st.text_input("제한효소 (선택사항, 쉼표 구분)", placeholder="EcoRV, BamHI (없으면 비워두세요)", key="s_enz").strip()
+
+        if st.button("GenBank 파일 생성 🚀", key="s_run"):
             if not gene_id_simple:
                 st.warning("Gene ID를 입력해 주세요.")
             else:
+                # 에러 우회를 위한 빈 데이터 삽입
                 job = {
                     'id': gene_id_simple,
                     'p_list': [],
                     'pb_list_wt': [],
                     'pb_list_mut': [],
-                    'enz': enz_simple,
+                    'enz': enz_simple,      
                     'out_mode': 'wt',
                     'out_name': gene_id_simple,
                     'mode': 'insert',
                     'pa': '', 'pb': None, 'ins_rec': None
                 }
-                success, errors = offer_download([job], flank_size, topology, zip_structure, download_mode, "dl_s")
-                for e in errors:
-                    st.error(e)
+                zip_buf = BytesIO()
+                with zipfile.ZipFile(zip_buf, "a") as zf:
+                    success, errors = write_records_to_zip(zf, [job], flank_size, topology, zip_structure)
+                
+                if success:
+                    now = datetime.now(KST).strftime("%Y%m%d_%H%M")
+                    st.success(f"✅ 총 {success}개의 파일 생성이 완료되었습니다. (Topology: {topology})")
+                    st.download_button(f"📥 다운로드 ({now})", zip_buf.getvalue(), f"Results_{now}.zip")
+                for e in errors: st.write(e)
 
+
+    # ───────────────────────────────────────────────────────────────────────────
+    # 2. 개별 수동 입력
+    # ───────────────────────────────────────────────────────────────────────────
     elif input_mode == "🖱️ 개별 수동 디자인":
 
         col_l, col_r = st.columns(2)
 
         with col_l:
             st.subheader("① 기본 정보")
-            gene_id_m = st.text_input("Gene ID", placeholder="예: B9J08_002598", key="m_gene").strip()
+            gene_id_m = st.text_input("Gene ID", placeholder="예: CNAG_03701", key="m_gene").strip()
             enz_m     = st.text_input("제한효소 (쉼표 구분)", placeholder="EcoRV, BamHI", key="m_enz")
 
             st.subheader("② 프라이머")
@@ -597,7 +532,7 @@ with tab_main:
             )
             out_name_m = st.text_input(
                 "Mutant 출력 파일명 (WT는 'Gene ID WT allele'로 고정됨)",
-                key="m_out_name", placeholder="예: B9J08_002598_NAT"
+                key="m_out_name", placeholder="예: CNAG_03701_NAT"
             ).strip()
 
             if out_mode_m in ("mut", "both"):
@@ -656,12 +591,20 @@ with tab_main:
                     'mode': st.session_state.get('m_ins_mode', 'insert'),
                     'pa': _pa,
                     'pb': _pb,
-                    'ins_rec': ins_rec_m,
+                    'ins_rec': ins_rec_m, 
                 }
-                success, errors = offer_download([job], flank_size, topology, zip_structure, download_mode, "dl_m")
-                for e in errors:
-                    st.write(e)
+                zip_buf = BytesIO()
+                with zipfile.ZipFile(zip_buf, "a") as zf:
+                    success, errors = write_records_to_zip(zf, [job], flank_size, topology, zip_structure)
+                if success:
+                    now = datetime.now(KST).strftime("%Y%m%d_%H%M")
+                    st.success(f"✅ 총 {success}개의 파일 생성이 완료되었습니다. (Topology: {topology})")
+                    st.download_button(f"📥 다운로드 ({now})", zip_buf.getvalue(), f"Results_{now}.zip")
+                for e in errors: st.write(e)
 
+    # ───────────────────────────────────────────────────────────────────────────
+    # 3. 엑셀 일괄 업로드
+    # ───────────────────────────────────────────────────────────────────────────
     else:
         st.markdown("""
 **통합 양식 시트 구성 안내** (사이드바에서 다운로드 가능):
@@ -762,9 +705,14 @@ with tab_main:
                         })
 
                     if jobs:
-                        success, errors = offer_download(jobs, flank_size, topology, zip_structure, download_mode, "dl_b")
-                        for e in errors:
-                            st.write(e)
+                        zip_buf = BytesIO()
+                        with zipfile.ZipFile(zip_buf, "a") as zf:
+                            success, errors = write_records_to_zip(zf, jobs, flank_size, topology, zip_structure)
+                        if success:
+                            now = datetime.now(KST).strftime("%Y%m%d_%H%M")
+                            st.success(f"✅ 총 {success}개의 파일 생성이 완료되었습니다. (Topology: {topology})")
+                            st.download_button(f"📥 다운로드 ({now})", zip_buf.getvalue(), f"Results_{now}.zip")
+                        for e in errors: st.write(e)
 
                 except Exception as ex:
                     st.error(f"엑셀 데이터 처리 오류: {ex}")
@@ -782,18 +730,11 @@ with tab_conv:
         st.write(f"업로드된 파일 총 {len(conv_files)}개:")
         for f in conv_files:
             st.write(f"  • {f.name} → {f.name.rsplit('.', 1)[0]}.dna")
-        if st.button("🔄 파일 변환", key="conv_run"):
-            ts = now_kst()
-            st.success(f"✅ {len(conv_files)}개 파일의 포맷 변환이 완료되었습니다.")
-            if download_mode == "zip":
-                zip_buf = BytesIO()
-                with zipfile.ZipFile(zip_buf, "w") as zf:
-                    for f in conv_files:
-                        zf.writestr(f.name.rsplit('.', 1)[0] + ".dna", f.read())
-                st.download_button(f"📥 ZIP 다운로드 ({ts})", zip_buf.getvalue(),
-                                   f"DNA_files_{ts}.zip", key="dl_conv_zip")
-            else:
+        if st.button("🔄 파일 변환 및 ZIP 다운로드", key="conv_run"):
+            zip_buf = BytesIO()
+            with zipfile.ZipFile(zip_buf, "w") as zf:
                 for f in conv_files:
-                    base = f.name.rsplit('.', 1)[0]
-                    st.download_button(f"📥 {base}.dna", f.read(),
-                                       f"{base}_{ts}.dna", key=f"dl_conv_{f.name}")
+                    zf.writestr(f.name.rsplit('.', 1)[0] + ".dna", f.read())
+            now = datetime.now(KST).strftime("%Y%m%d_%H%M")
+            st.success(f"✅ {len(conv_files)}개 파일의 포맷 변환이 완료되었습니다.")
+            st.download_button(f"📥 변환된 파일 다운로드 ({now})", zip_buf.getvalue(), f"DNA_files_{now}.zip")
