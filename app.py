@@ -380,42 +380,34 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
 
 
 def write_records_to_zip(zf, jobs, flank, topo, zip_structure="flat"):
-    success, errors = 0, []
-    total = len(jobs)
-    progress = st.progress(0, text="파일 생성 처리 중...")
+    # ... (중략) ...
+    # KST 기준으로 현재 시간 정보 미리 생성
+    now_kst = datetime.now(KST)
+    zip_time = (now_kst.year, now_kst.month, now_kst.day, now_kst.hour, now_kst.minute, now_kst.second)
 
     for i, j in enumerate(jobs):
-        progress.progress((i + 1) / total, text=f"작업 진행 중: {j['id']}")
-        out_mode  = j.get('out_mode', 'wt')
-        
-        custom_name = j.get('out_name', j['id'])
-
-        prefix = f"{j['id']}/" if zip_structure == "by_gene" else ""
-
-        wt_fname  = f"{prefix}{j['id']} WT allele"
-        mut_fname = f"{prefix}{custom_name}"
-
+        # ... (중략) ...
         if out_mode in ('wt', 'both'):
-            wt_res, wt_err = process_wt(
-                j['id'], j['p_list'], j['pb_list_wt'], j['enz'], flank, topo)
+            wt_res, wt_err = process_wt(...)
             if wt_res:
-                buf = StringIO(); SeqIO.write(wt_res, buf, "genbank")
-                zf.writestr(f"{wt_fname}.gb", buf.getvalue())
+                buf = StringIO()
+                SeqIO.write(wt_res, buf, "genbank")
+                
+                # [수정 포인트] 파일 정보를 생성하여 한국 시간을 주입합니다.
+                info = zipfile.ZipInfo(f"{wt_fname}.gb", date_time=zip_time)
+                zf.writestr(info, buf.getvalue())
                 success += 1
-            else:
-                errors.append(f"❌ {j['id']} WT 작업 실패: {wt_err}")
-
+        
         if out_mode in ('mut', 'both'):
-            mut_res, mut_err = process_mutant(
-                j['id'], j['p_list'], j['pb_list_mut'], j['enz'], flank,
-                j['ins_rec'], j['mode'],
-                j['pa'], j['pb'], topo)
+            mut_res, mut_err = process_mutant(...)
             if mut_res:
-                buf = StringIO(); SeqIO.write(mut_res, buf, "genbank")
-                zf.writestr(f"{mut_fname}.gb", buf.getvalue())
+                buf = StringIO()
+                SeqIO.write(mut_res, buf, "genbank")
+                
+                # [수정 포인트] 여기도 마찬가지로 적용합니다.
+                info = zipfile.ZipInfo(f"{mut_fname}.gb", date_time=zip_time)
+                zf.writestr(info, buf.getvalue())
                 success += 1
-            else:
-                errors.append(f"❌ {j['id']} MUT 작업 실패: {mut_err}")
 
     progress.empty()
     return success, errors
