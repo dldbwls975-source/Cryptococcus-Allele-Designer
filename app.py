@@ -11,6 +11,9 @@ import zipfile
 from datetime import datetime, timezone, timedelta
 from docx import Document
 
+# 한국 시간(UTC+9) 설정
+KST = timezone(timedelta(hours=9))
+
 st.set_page_config(page_title="Crypto Allele Designer", page_icon="🧪", layout="wide")
 st.title("🧪 Crypto Allele Designer")
 
@@ -471,7 +474,7 @@ with tab_main:
                     success, errors = write_records_to_zip(zf, [job], flank_size, topology, zip_structure)
                 
                 if success:
-                    now = datetime.now().strftime("%Y%m%d_%H%M")
+                    now = datetime.now(KST).strftime("%Y%m%d_%H%M")
                     st.success(f"✅ 총 {success}개의 파일 생성이 완료되었습니다. (Topology: {topology})")
                     st.download_button(f"📥 다운로드 ({now})", zip_buf.getvalue(), f"Results_{now}.zip")
                 for e in errors: st.write(e)
@@ -602,7 +605,7 @@ with tab_main:
                 with zipfile.ZipFile(zip_buf, "a") as zf:
                     success, errors = write_records_to_zip(zf, [job], flank_size, topology, zip_structure)
                 if success:
-                    now = datetime.now().strftime("%Y%m%d_%H%M")
+                    now = datetime.now(KST).strftime("%Y%m%d_%H%M")
                     st.success(f"✅ 총 {success}개의 파일 생성이 완료되었습니다. (Topology: {topology})")
                     st.download_button(f"📥 다운로드 ({now})", zip_buf.getvalue(), f"Results_{now}.zip")
                 for e in errors: st.write(e)
@@ -714,7 +717,7 @@ with tab_main:
                         with zipfile.ZipFile(zip_buf, "a") as zf:
                             success, errors = write_records_to_zip(zf, jobs, flank_size, topology, zip_structure)
                         if success:
-                            now = datetime.now().strftime("%Y%m%d_%H%M")
+                            now = datetime.now(KST).strftime("%Y%m%d_%H%M")
                             st.success(f"✅ 총 {success}개의 파일 생성이 완료되었습니다. (Topology: {topology})")
                             st.download_button(f"📥 다운로드 ({now})", zip_buf.getvalue(), f"Results_{now}.zip")
                         for e in errors: st.write(e)
@@ -740,6 +743,6 @@ with tab_conv:
             with zipfile.ZipFile(zip_buf, "w") as zf:
                 for f in conv_files:
                     zf.writestr(f.name.rsplit('.', 1)[0] + ".dna", f.read())
-            now = datetime.now().strftime("%Y%m%d_%H%M")
+            now = datetime.now(KST).strftime("%Y%m%d_%H%M")
             st.success(f"✅ {len(conv_files)}개 파일의 포맷 변환이 완료되었습니다.")
             st.download_button(f"📥 변환된 파일 다운로드 ({now})", zip_buf.getvalue(), f"DNA_files_{now}.zip")
