@@ -141,7 +141,7 @@ tab_main, tab_conv = st.tabs(["🧬 Allele Designer", "🔄 GB → DNA 변환"])
 def get_primer_coords(sub_seq, p_list):
     p_idx = {}
     for p in p_list:
-        full_seq = str(p['seq']).strip().replace(" ", "").upper()
+        full_seq = str(p.get('seq', '')).strip().replace(" ", "").upper()
         if not full_seq: continue
         overlap = str(p.get('overlap', '')).strip().replace(" ", "").upper()
 
@@ -246,7 +246,7 @@ def add_restriction_sites(record, seq, enz_names, gene_id=""):
 
 def add_primers_and_probes(record, seq, p_list, pb_list):
     p_idx = get_primer_coords(seq, p_list)
-    not_found = [p['name'] for p in p_list if p['name'] and p['seq'] and p['name'] not in p_idx]
+    not_found = [p['name'] for p in p_list if p.get('name') and p.get('seq') and p['name'] not in p_idx]
     if not_found:
         st.warning(f"⚠️ 서열 내에서 위치를 찾을 수 없는 프라이머: {', '.join(not_found)}")
         
@@ -256,7 +256,7 @@ def add_primers_and_probes(record, seq, p_list, pb_list):
             type="primer_bind", qualifiers={"note": [pname], "label": [pname]}))
             
     for pb in pb_list:
-        p1, p2 = pb['p1'], pb['p2']
+        p1, p2 = pb.get('p1', ''), pb.get('p2', '')
         if p1 in p_idx and p2 in p_idx:
             coords = [p_idx[p1]['core_start'], p_idx[p1]['core_end'],
                       p_idx[p2]['core_start'], p_idx[p2]['core_end']]
@@ -296,7 +296,7 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
 
         def find_cut_point(primer_name, mode="end"):
             primer_entry = next((p for p in p_list if p['name'] == primer_name), None)
-            if not primer_entry or not primer_entry['seq'].strip():
+            if not primer_entry or not primer_entry.get('seq', '').strip():
                 return None, f"프라이머 '{primer_name}'의 서열 정보가 누락되었습니다."
             full_seq_str = primer_entry['seq'].strip().upper().replace(" ", "")
             overlap_str  = str(primer_entry.get('overlap', '')).strip().upper().replace(" ", "")
@@ -338,7 +338,6 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
             ins_delta = len(ins_seq)
 
         shifted_cds = []
-        # WT 기준의 원래 인덱스(i)를 함께 저장
         for i, (s0, e0) in enumerate(base['cds_mapped'], 1):
             if e0 <= cut_start:
                 shifted_cds.append((s0, e0, i))
@@ -354,7 +353,6 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
                            annotations={"molecule_type": "DNA"})
         apply_topology(record, topo)
 
-        # 렌더링 시 오리지널 인덱스(orig_idx)를 그대로 사용하여 번호 유지
         for (s0, e0, orig_idx) in shifted_cds:
             record.features.append(SeqFeature(FeatureLocation(s0, e0, strand=1), type="CDS",
                                               qualifiers={"note": [f"E{orig_idx}"], "label": [f"E{orig_idx}"]}))
@@ -363,11 +361,9 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
             for feat in ins_rec.features:
                 if feat.type == "source":
                     continue
-                
                 new_start = feat.location.start + ins_start_in_mut
                 new_end = feat.location.end + ins_start_in_mut
                 new_loc = FeatureLocation(new_start, new_end, strand=feat.location.strand)
-                
                 new_feat = SeqFeature(new_loc, type=feat.type, qualifiers=feat.qualifiers)
                 record.features.append(new_feat)
 
@@ -387,15 +383,10 @@ def write_records_to_zip(zf, jobs, flank, topo, zip_structure="flat"):
         progress.progress((i + 1) / total, text=f"작업 진행 중: {j['id']}")
         out_mode  = j.get('out_mode', 'wt')
         
-        # 사용자가 입력한 파일명 (입력 안 했으면 기본 유전자 ID)
         custom_name = j.get('out_name', j['id'])
-
         prefix = f"{j['id']}/" if zip_structure == "by_gene" else ""
 
-        # WT는 무조건 [Gene ID] WT allele 로 고정
         wt_fname  = f"{prefix}{j['id']} WT allele"
-        
-        # Mutant는 사용자가 지정한 이름 그대로 사용 (자동 MUT allele 꼬리표 없음)
         mut_fname = f"{prefix}{custom_name}"
 
         if out_mode in ('wt', 'both'):
@@ -449,6 +440,10 @@ with tab_main:
         with col_l:
             st.subheader("① 기본 정보")
             gene_id_m = st.text_input("Gene ID", placeholder="예: CNAG_03701", key="m_gene").strip()
+            
+            # ✅ 추가된 안내 문구
+            st.info("💡 **Tip:** 프라이머나 제한효소 칸을 비워두고 출력 모드를 'WT 서열만'으로 선택하면, Exon(CDS) 영역만 자동 추출되어 표기된 순수 유전자 시퀀스를 얻을 수 있습니다.")
+
             enz_m     = st.text_input("제한효소 (쉼표 구분)", placeholder="EcoRV, BamHI", key="m_enz")
 
             st.subheader("② 프라이머")
@@ -494,7 +489,7 @@ with tab_main:
             out_mode_m = st.radio(
                 "출력 대상",
                 options=["wt", "mut", "both"],
-                format_func=lambda x: {"wt": "WT 서열만", "mut": "Mutant 서열만", "both": "WT + Mutant 모두"}[x],
+                format_func=lambda x: {"wt": "WT 서열만 (Exon 자동표기)", "mut": "Mutant 서열만", "both": "WT + Mutant 모두"}[x],
                 key="m_out_mode", horizontal=True
             )
             out_name_m = st.text_input(
@@ -546,19 +541,24 @@ with tab_main:
             else:
                 _pa     = st.session_state.get('m_pa', '')
                 _pb     = st.session_state.get('m_pb', None)
-                _p_list = [dict(p) for p in st.session_state.m_primers]
+                
+                # ✅ 빈칸(빈 프라이머, 빈 프로브)이 있으면 완전히 무시하도록 필터링 추가
+                _p_list = [dict(p) for p in st.session_state.m_primers if p.get('seq', '').strip()]
+                _pb_wt = [pb for pb in st.session_state.m_probes_wt if pb.get('p1', '').strip() and pb.get('p2', '').strip()]
+                _pb_mut = [pb for pb in st.session_state.m_probes_mut if pb.get('p1', '').strip() and pb.get('p2', '').strip()]
+
                 job = {
                     'id': gene_id_m,
                     'p_list': _p_list,
-                    'pb_list_wt': st.session_state.m_probes_wt,
-                    'pb_list_mut': st.session_state.m_probes_mut,
+                    'pb_list_wt': _pb_wt,
+                    'pb_list_mut': _pb_mut,
                     'enz': enz_m,
                     'out_mode': out_mode_m,
                     'out_name': out_name_m or gene_id_m,
                     'mode': st.session_state.get('m_ins_mode', 'insert'),
                     'pa': _pa,
                     'pb': _pb,
-                    'ins_rec': ins_rec_m, 
+                    'ins_rec': ins_rec_m if out_mode_m in ("mut", "both") else None, 
                 }
                 zip_buf = BytesIO()
                 with zipfile.ZipFile(zip_buf, "a") as zf:
@@ -581,7 +581,7 @@ with tab_main:
 | `Enzymes` | Gene ID / Enzymes |
 | `Jobs` | Gene ID / **Output Mode** / Insert Mode / Primer A / Primer A Overlap / Primer B / Primer B Overlap / Insert GB Filename / Output Filename |
 
-* `Output Mode`: `wt` / `mut` / `both` (WT 서열만 출력 시 삽입 관련 옵션은 무시됩니다.)
+* `Output Mode`: `wt` / `mut` / `both` (WT 서열만 출력 시 삽입 관련 옵션은 무시됩니다. Exon 추출만 필요 시 `wt` 입력 후 나머지 칸은 비워도 무방합니다.)
         """)
 
         excel_file = st.file_uploader("작성된 통합 엑셀 파일 업로드", type=["xlsx"], key="batch_excel")
@@ -631,6 +631,7 @@ with tab_main:
                         gb_fname = clean(row.get('Insert GB Filename', ''))
                         out_nm   = clean(row.get('Output Filename', '')) or gene
 
+                        # ✅ 엑셀에서도 Sequence 서열이 없으면 알아서 무시하도록 필터링 조건 추가
                         p_list = [
                             {
                                 'name': clean(r['Primer Name']),
@@ -638,16 +639,19 @@ with tab_main:
                                 'overlap': pa_ov if clean(r['Primer Name']) == pa else (pb_ov if clean(r['Primer Name']) == pb else "")
                             }
                             for _, r in df_primers[df_primers['Gene ID'] == gene].iterrows()
+                            if clean(r['Sequence'])
                         ]
                         
                         pb_list_wt = [
                             {'p1': clean(r['Probe Start Primer']), 'p2': clean(r['Probe End Primer'])}
                             for _, r in df_probes_wt[df_probes_wt['Gene ID'] == gene].iterrows()
+                            if clean(r['Probe Start Primer']) and clean(r['Probe End Primer'])
                         ]
                         
                         pb_list_mut = [
                             {'p1': clean(r['Probe Start Primer']), 'p2': clean(r['Probe End Primer'])}
                             for _, r in df_probes_mut[df_probes_mut['Gene ID'] == gene].iterrows()
+                            if clean(r['Probe Start Primer']) and clean(r['Probe End Primer'])
                         ]
                         
                         enz = df_enz[df_enz['Gene ID'] == gene]['Enzymes'].iloc[0] \
