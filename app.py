@@ -11,7 +11,7 @@ import zipfile
 from datetime import datetime
 from docx import Document
 
-st.set_page_config(page_title="Crypto Lab Tool", page_icon="🧪", layout="wide")
+st.set_page_config(page_title="크립토 뮤턴트 디자인", page_icon="🧪", layout="wide")
 st.title("🧪 Crypto Allele Designer")
 
 # ── 파일 체크 ──────────────────────────────────────────────────────────────────
