@@ -11,9 +11,8 @@ import zipfile
 from datetime import datetime
 from docx import Document
 
-# 타이틀을 이미지에 맞춰 C. auris로 변경
-st.set_page_config(page_title="C. auris Allele Designer", page_icon="🧪", layout="wide")
-st.title("🧪 C. auris Allele Designer")
+st.set_page_config(page_title="Crypto Allele Designer", page_icon="🧪", layout="wide")
+st.title("🧪 Crypto Allele Designer")
 
 # ── 파일 체크 ──────────────────────────────────────────────────────────────────
 if not os.path.exists("genome.fasta") or not os.path.exists("annotation.gff"):
@@ -35,7 +34,7 @@ def load_gff():
 # ── Word 매뉴얼 생성 ────────────────────────────────────────────────────────────
 def generate_manual_word():
     doc = Document()
-    doc.add_heading('Allele Designer 사용 매뉴얼', 0)
+    doc.add_heading('Crypto Allele Designer 사용 매뉴얼', 0)
 
     doc.add_heading('1. 주의사항 (Notice)', level=1)
     doc.add_paragraph('• 교차 점검 필수: 본 도구는 연구 편의를 돕는 자동화 스크립트입니다. 출력된 최종 Allele(.gb) 서열과 프라이머 결합 위치는 실험 진행 전, SnapGene 등 시퀀스 뷰어 프로그램을 통해 반드시 직접 교차 점검(Cross-check)하시기 바랍니다.')
@@ -62,26 +61,26 @@ def generate_manual_word():
 def generate_template():
     output = BytesIO()
     df_p = pd.DataFrame({
-        'Gene ID': ['B9J08_000791', 'B9J08_000791'],
+        'Gene ID': ['CNAG_03701', 'CNAG_03701'],
         'Primer Name': ['L1', 'L2'],
         'Sequence': ['GCTTGTTGGCTTTCAGATG', 'CACTCGAATCCTGCATGCGTTGCCTTTTCTGTCGCC'],
     })
     df_pb_wt = pd.DataFrame({
-        'Gene ID': ['B9J08_000791'],
+        'Gene ID': ['CNAG_03701'],
         'Probe Start Primer': ['L1'],
         'Probe End Primer': ['L2'],
     })
     df_pb_mut = pd.DataFrame({
-        'Gene ID': ['B9J08_000791'],
+        'Gene ID': ['CNAG_03701'],
         'Probe Start Primer': ['NAT_F'],
         'Probe End Primer': ['NAT_R'],
     })
     df_e = pd.DataFrame({
-        'Gene ID': ['B9J08_000791'],
+        'Gene ID': ['CNAG_03701'],
         'Enzymes': ['ClaI'],
     })
     df_jobs = pd.DataFrame({
-        'Gene ID':            ['B9J08_000791'],
+        'Gene ID':            ['CNAG_03701'],
         'Output Mode':        ['both'],        
         'Insert Mode':        ['replace'],      
         'Primer A':           ['L2'],
@@ -89,7 +88,7 @@ def generate_template():
         'Primer B':           ['R1'],            
         'Primer B Overlap':   [''],
         'Insert GB Filename': ['PCTR4_NAT.gb'],
-        'Output Filename':    ['B9J08_000791_NAT'],  
+        'Output Filename':    ['CNAG_03701_NAT'],  
     })
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_p.to_excel(writer,      index=False, sheet_name='Primers')
@@ -127,8 +126,8 @@ with st.sidebar:
 
     st.divider()
     st.subheader("📥 다운로드 센터")
-    st.download_button("📂 엑셀 양식 다운로드", generate_template(), "Allele_Template.xlsx")
-    st.download_button("📘 사용 매뉴얼 (Word)", generate_manual_word(), "Allele_Designer_Manual.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    st.download_button("📂 엑셀 양식 다운로드", generate_template(), "Crypto_Allele_Template.xlsx")
+    st.download_button("📘 사용 매뉴얼 (Word)", generate_manual_word(), "Crypto_Allele_Designer_Manual.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 # ── 탭 구성 ─────────────────────────────────────────────────────────────────────
@@ -433,13 +432,13 @@ with tab_main:
 
     st.info("사이드바에서 통합 디자인 양식과 매뉴얼을 다운로드할 수 있습니다. 결과물은 WT, Mutant, 또는 둘 다 출력하도록 선택 가능합니다.")
 
-    # [수정된 부분] 3가지 옵션으로 분리
+    # 3가지 옵션으로 분리된 입력 방식
     input_mode = st.radio("입력 방식", ["🧬 단순 WT 추출 (Exon만)", "🖱️ 개별 수동 디자인", "📂 엑셀 일괄 업로드"],
                           horizontal=True, key="input_mode")
     st.divider()
 
     # ───────────────────────────────────────────────────────────────────────────
-    # 1. 단순 WT 서열 추출 (새로 추가된 모드)
+    # 1. 단순 WT 서열 추출
     # ───────────────────────────────────────────────────────────────────────────
     if input_mode == "🧬 단순 WT 추출 (Exon만)":
         st.subheader("단순 WT 서열 추출")
@@ -447,7 +446,7 @@ with tab_main:
 
         col1, col2 = st.columns(2)
         with col1:
-            gene_id_simple = st.text_input("Gene ID", placeholder="B9J08_000791", key="s_gene").strip()
+            gene_id_simple = st.text_input("Gene ID", placeholder="예: CNAG_03701", key="s_gene").strip()
         with col2:
             enz_simple = st.text_input("제한효소 (선택사항, 쉼표 구분)", placeholder="EcoRV, BamHI (없으면 비워두세요)", key="s_enz").strip()
 
@@ -455,14 +454,14 @@ with tab_main:
             if not gene_id_simple:
                 st.warning("Gene ID를 입력해 주세요.")
             else:
-                # 에러 우회를 위한 가짜(빈) 데이터 삽입
+                # 에러 우회를 위한 빈 데이터 삽입
                 job = {
                     'id': gene_id_simple,
-                    'p_list': [],           # 빈 리스트 전달 (에러 방지)
+                    'p_list': [],
                     'pb_list_wt': [],
                     'pb_list_mut': [],
                     'enz': enz_simple,      
-                    'out_mode': 'wt',       # WT 모드 고정
+                    'out_mode': 'wt',
                     'out_name': gene_id_simple,
                     'mode': 'insert',
                     'pa': '', 'pb': None, 'ins_rec': None
@@ -479,7 +478,7 @@ with tab_main:
 
 
     # ───────────────────────────────────────────────────────────────────────────
-    # 2. 개별 수동 입력 (기존 로직)
+    # 2. 개별 수동 입력
     # ───────────────────────────────────────────────────────────────────────────
     elif input_mode == "🖱️ 개별 수동 디자인":
 
@@ -487,7 +486,7 @@ with tab_main:
 
         with col_l:
             st.subheader("① 기본 정보")
-            gene_id_m = st.text_input("Gene ID", placeholder="예: B9J08_000791", key="m_gene").strip()
+            gene_id_m = st.text_input("Gene ID", placeholder="예: CNAG_03701", key="m_gene").strip()
             enz_m     = st.text_input("제한효소 (쉼표 구분)", placeholder="EcoRV, BamHI", key="m_enz")
 
             st.subheader("② 프라이머")
@@ -538,7 +537,7 @@ with tab_main:
             )
             out_name_m = st.text_input(
                 "Mutant 출력 파일명 (WT는 'Gene ID WT allele'로 고정됨)",
-                key="m_out_name", placeholder="예: B9J08_000791_NAT"
+                key="m_out_name", placeholder="예: CNAG_03701_NAT"
             ).strip()
 
             if out_mode_m in ("mut", "both"):
@@ -609,7 +608,7 @@ with tab_main:
                 for e in errors: st.write(e)
 
     # ───────────────────────────────────────────────────────────────────────────
-    # 3. 엑셀 일괄 업로드 (기존 로직)
+    # 3. 엑셀 일괄 업로드
     # ───────────────────────────────────────────────────────────────────────────
     else:
         st.markdown("""
