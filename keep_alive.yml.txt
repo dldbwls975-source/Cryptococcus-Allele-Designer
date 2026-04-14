@@ -9,4 +9,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping Streamlit App
-        run: curl -I https://your-app-url.streamlit.app # 본인 앱 주소로 수정
+        run: curl -I https://cryptococcus-allele-designer.streamlit.app/ # 본인 앱 주소로 수정
