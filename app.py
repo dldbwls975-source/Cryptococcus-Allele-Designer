@@ -170,6 +170,31 @@ tab_main, tab_conv = st.tabs(["🧬 Allele Designer", "🔄 GB → DNA 변환"])
 # 공통 분석 함수
 # ════════════════════════════════════════════════════════════════════════════════
 
+def genbank_text(record):
+    """
+    SeqRecord를 GenBank 텍스트로 변환한다.
+    Biopython의 GenBank writer는 서열 블록을 무조건 소문자로 출력하도록
+    고정되어 있으므로, ORIGIN 이후 '//' 앞까지의 서열 구간만 대문자로
+    되돌린다. (FEATURES의 label·note 등 주석 텍스트는 원본 대소문자 유지)
+    """
+    buf = StringIO()
+    SeqIO.write(record, buf, "genbank")
+
+    out, in_origin = [], False
+    for line in buf.getvalue().splitlines(keepends=True):
+        if in_origin:
+            if line.startswith("//"):
+                in_origin = False
+                out.append(line)
+            else:
+                out.append(line.upper())
+        else:
+            out.append(line)
+            if line.startswith("ORIGIN"):
+                in_origin = True
+    return "".join(out)
+
+
 def make_ctx(gene_id, allele_type, out_fname=""):
     """경고 메시지에 붙일 위치 표시자: 'CNAG_03701 · MUT · CNAG_03701_NAT.gb'"""
     ctx = f"{gene_id} · {allele_type}"
@@ -257,7 +282,9 @@ def get_wt_base(gene_id, flank):
     if chrom not in genome_dict: return None, f"FASTA 파일에서 Chromosome '{chrom}'을 찾을 수 없습니다."
     full_seq = genome_dict[chrom].seq
     ext_s = max(1, start_pos - flank); ext_e = min(len(full_seq), end_pos + flank)
-    sub_seq = full_seq[ext_s - 1: ext_e]
+    # 대문자 통일: 일부 Reference Genome은 반복서열이 소문자(soft-masked)로
+    # 표기되어 있어, 대소문자를 맞추지 않으면 프라이머 검색이 실패한다.
+    sub_seq = full_seq[ext_s - 1: ext_e].upper()
     
     if strand == -1: sub_seq = sub_seq.reverse_complement()
 
@@ -351,7 +378,7 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
         base, err = get_wt_base(gene_id, flank)
         if err: return None, err
         sub_seq = base['sub_seq']
-        ins_seq = ins_rec.seq if ins_rec else Seq("")
+        ins_seq = ins_rec.seq.upper() if ins_rec else Seq("")
 
         def find_cut_point(primer_name, mode="end"):
             primer_entry = next((p for p in p_list if p['name'] == primer_name), None)
@@ -461,8 +488,7 @@ def write_records_to_zip(zf, jobs, flank, topo, zip_structure="flat"):
                 j['id'], j['p_list'], j['pb_list_wt'], j['enz'], flank, topo,
                 out_fname=wt_base, issues=issues)
             if wt_res:
-                buf = StringIO(); SeqIO.write(wt_res, buf, "genbank")
-                zf.writestr(f"{wt_fname}.gb", buf.getvalue())
+                zf.writestr(f"{wt_fname}.gb", genbank_text(wt_res))
                 success += 1
             else:
                 errors.append(f"❌ {make_ctx(j['id'], 'WT', wt_base)} 작업 실패: {wt_err}")
@@ -474,8 +500,7 @@ def write_records_to_zip(zf, jobs, flank, topo, zip_structure="flat"):
                 j['pa'], j['pb'], topo,
                 out_fname=mut_base, issues=issues)
             if mut_res:
-                buf = StringIO(); SeqIO.write(mut_res, buf, "genbank")
-                zf.writestr(f"{mut_fname}.gb", buf.getvalue())
+                zf.writestr(f"{mut_fname}.gb", genbank_text(mut_res))
                 success += 1
             else:
                 errors.append(f"❌ {make_ctx(j['id'], 'MUT', mut_base)} 작업 실패: {mut_err}")
