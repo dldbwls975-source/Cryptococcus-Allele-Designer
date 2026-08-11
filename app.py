@@ -80,6 +80,10 @@ def generate_manual_word():
     doc.add_paragraph('[Enzymes 시트]\n지도에 표기할 제한효소가 있다면 쉼표(,)로 구분하여 기입합니다. (예: BamHI, EcoRV)')
     doc.add_paragraph('[Jobs 시트]\n디자인의 주요 실행 옵션을 설정하는 시트입니다.\n- Output Mode: wt (WT만), mut (Mutant만), both (둘 다 출력)\n- Insert Mode: insert (단순 삽입), replace (특정 구간 치환). Replace 모드 선택 시, 치환되어 삭제되는 구간에 포함된 Exon 영역도 자동으로 계산되어 제거됩니다.\n- Primer A Overlap: WT 서열이 아닌 삽입 마커 서열 쪽에 결합하는 프라이머의 5\' Overlap 서열을 기입합니다.\n- 삽입 마커: 업로드한 마커 GB 파일(예: NAT.gb) 내의 주석(Feature) 정보는 Mutant 서열 생성 시 기존 위치와 이름이 보존되어 자동 이식됩니다.')
 
+    doc.add_heading('4. 경고 메시지 읽는 법', level=1)
+    doc.add_paragraph('프라이머 결합 위치를 찾지 못하거나 Probe 구간을 만들지 못한 경우, 경고 메시지에 [Gene ID · WT/MUT · 출력 파일명] 형식의 위치 정보가 함께 표시됩니다. 여러 유전자를 일괄 처리할 때 어떤 유전자의 어떤 결과 파일에서 문제가 생겼는지 이 정보로 구분할 수 있습니다.')
+    doc.add_paragraph('또한 모든 경고는 실행이 끝난 뒤 화면 하단의 [처리 결과 요약]에 표로 정리되므로, 메시지가 화면 위로 밀려 올라가더라도 한 번에 확인할 수 있습니다.')
+
     output = BytesIO()
     doc.save(output)
     return output.getvalue()
@@ -165,6 +169,21 @@ tab_main, tab_conv = st.tabs(["🧬 Allele Designer", "🔄 GB → DNA 변환"])
 # ════════════════════════════════════════════════════════════════════════════════
 # 공통 분석 함수
 # ════════════════════════════════════════════════════════════════════════════════
+
+def make_ctx(gene_id, allele_type, out_fname=""):
+    """경고 메시지에 붙일 위치 표시자: 'CNAG_03701 · MUT · CNAG_03701_NAT.gb'"""
+    ctx = f"{gene_id} · {allele_type}"
+    if out_fname:
+        ctx += f" · {out_fname}.gb"
+    return ctx
+
+
+def log_issue(issues, ctx, message, icon="⚠️"):
+    """경고를 화면에 즉시 표시하고, 최종 요약용 리스트에도 누적한다."""
+    st.warning(f"{icon} **{ctx}** — {message}")
+    if issues is not None:
+        issues.append({'대상': ctx, '내용': message})
+
 
 def get_primer_coords(sub_seq, p_list):
     p_idx = {}
@@ -257,7 +276,7 @@ def apply_topology(record, topo):
     record.annotations["topology"] = topo; return record
 
 
-def add_restriction_sites(record, seq, enz_names, gene_id=""):
+def add_restriction_sites(record, seq, enz_names, ctx="", issues=None):
     if not enz_names or str(enz_names).lower() == 'nan': return
     clean_enz = [e.strip() for e in str(enz_names).split(',') if e.strip()]
     if not clean_enz: return
@@ -269,20 +288,22 @@ def add_restriction_sites(record, seq, enz_names, gene_id=""):
                     FeatureLocation(s - 1, s, strand=1), type="misc_feature",
                     qualifiers={"note": [str(enz)], "label": [str(enz)]}))
     except Exception as e:
-        st.warning(f"⚠️ 제한효소 인식 오류 ({gene_id}): {e}")
+        log_issue(issues, ctx, f"제한효소 인식 오류: {e}")
 
 
-def add_primers_and_probes(record, seq, p_list, pb_list):
+def add_primers_and_probes(record, seq, p_list, pb_list, ctx="", issues=None):
     p_idx = get_primer_coords(seq, p_list)
+
     not_found = [p['name'] for p in p_list if p['name'] and p['seq'] and p['name'] not in p_idx]
     if not_found:
-        st.warning(f"⚠️ 서열 내에서 위치를 찾을 수 없는 프라이머: {', '.join(not_found)}")
-        
+        log_issue(issues, ctx,
+                  f"서열 내에서 결합 위치를 찾을 수 없는 프라이머: {', '.join(not_found)}")
+
     for pname, pinfo in p_idx.items():
         record.features.append(SeqFeature(
             FeatureLocation(pinfo['full_start'], pinfo['full_end'], strand=pinfo['strand']),
             type="primer_bind", qualifiers={"note": [pname], "label": [pname]}))
-            
+
     for pb in pb_list:
         p1, p2 = pb['p1'], pb['p2']
         if p1 in p_idx and p2 in p_idx:
@@ -291,9 +312,17 @@ def add_primers_and_probes(record, seq, p_list, pb_list):
             record.features.append(SeqFeature(
                 FeatureLocation(min(coords), max(coords), strand=1),
                 type="misc_feature", qualifiers={"note": ["Probe"], "label": ["Probe"]}))
+        else:
+            missing = [x for x in (p1, p2) if x and x not in p_idx]
+            if missing:
+                log_issue(issues, ctx,
+                          f"Probe 구간({p1}–{p2})을 생성하지 못했습니다. "
+                          f"결합 위치 미확인 프라이머: {', '.join(missing)}")
 
 
-def process_wt(gene_id, p_list, pb_list, enz_names, flank, topo):
+def process_wt(gene_id, p_list, pb_list, enz_names, flank, topo,
+               out_fname="", issues=None):
+    ctx = make_ctx(gene_id, "WT", out_fname)
     try:
         base, err = get_wt_base(gene_id, flank)
         if err: return None, err
@@ -306,8 +335,8 @@ def process_wt(gene_id, p_list, pb_list, enz_names, flank, topo):
             record.features.append(SeqFeature(FeatureLocation(s0, e0, strand=1), type="CDS",
                                               qualifiers={"note": [f"E{i}"], "label": [f"E{i}"]}))
                                               
-        add_restriction_sites(record, sub_seq, enz_names, gene_id)
-        add_primers_and_probes(record, sub_seq, p_list, pb_list)
+        add_restriction_sites(record, sub_seq, enz_names, ctx, issues)
+        add_primers_and_probes(record, sub_seq, p_list, pb_list, ctx, issues)
         return record, None
     except Exception as e:
         return None, f"WT 서열 생성 오류: {e}"
@@ -315,7 +344,9 @@ def process_wt(gene_id, p_list, pb_list, enz_names, flank, topo):
 
 def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
                    ins_rec, insert_mode,
-                   primer_a_name, primer_b_name, topo):
+                   primer_a_name, primer_b_name, topo,
+                   out_fname="", issues=None):
+    ctx = make_ctx(gene_id, "MUT", out_fname)
     try:
         base, err = get_wt_base(gene_id, flank)
         if err: return None, err
@@ -333,7 +364,9 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
                 if not search_seq:
                     return None, f"'{primer_name}': Overlap 서열 제거 후 결합할 핵심(Core) 서열이 없습니다."
             elif overlap_str:
-                st.warning(f"⚠️ {primer_name}: Overlap 서열이 프라이머의 5' 말단과 일치하지 않아 전체 서열 기준으로 검색합니다.")
+                log_issue(issues, ctx,
+                          f"{primer_name}: Overlap 서열이 프라이머의 5' 말단과 일치하지 않아 "
+                          f"전체 서열 기준으로 검색합니다.")
                 search_seq = full_seq_str
             else:
                 search_seq = full_seq_str
@@ -397,8 +430,8 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
                 new_feat = SeqFeature(new_loc, type=feat.type, qualifiers=feat.qualifiers)
                 record.features.append(new_feat)
 
-        add_restriction_sites(record, mut_seq, enz_names, gene_id)
-        add_primers_and_probes(record, mut_seq, p_list, pb_list)
+        add_restriction_sites(record, mut_seq, enz_names, ctx, issues)
+        add_primers_and_probes(record, mut_seq, p_list, pb_list, ctx, issues)
         return record, None
     except Exception as e:
         return None, f"Mutant 서열 생성 오류: {e}"
@@ -406,6 +439,7 @@ def process_mutant(gene_id, p_list, pb_list, enz_names, flank,
 
 def write_records_to_zip(zf, jobs, flank, topo, zip_structure="flat"):
     success, errors = 0, []
+    issues = []
     total = len(jobs)
     progress = st.progress(0, text="파일 생성 처리 중...")
 
@@ -417,33 +451,46 @@ def write_records_to_zip(zf, jobs, flank, topo, zip_structure="flat"):
 
         prefix = f"{j['id']}/" if zip_structure == "by_gene" else ""
 
-        wt_fname  = f"{prefix}{j['id']} WT allele"
-        mut_fname = f"{prefix}{custom_name}"
+        wt_base   = f"{j['id']} WT allele"
+        mut_base  = custom_name
+        wt_fname  = f"{prefix}{wt_base}"
+        mut_fname = f"{prefix}{mut_base}"
 
         if out_mode in ('wt', 'both'):
             wt_res, wt_err = process_wt(
-                j['id'], j['p_list'], j['pb_list_wt'], j['enz'], flank, topo)
+                j['id'], j['p_list'], j['pb_list_wt'], j['enz'], flank, topo,
+                out_fname=wt_base, issues=issues)
             if wt_res:
                 buf = StringIO(); SeqIO.write(wt_res, buf, "genbank")
                 zf.writestr(f"{wt_fname}.gb", buf.getvalue())
                 success += 1
             else:
-                errors.append(f"❌ {j['id']} WT 작업 실패: {wt_err}")
+                errors.append(f"❌ {make_ctx(j['id'], 'WT', wt_base)} 작업 실패: {wt_err}")
 
         if out_mode in ('mut', 'both'):
             mut_res, mut_err = process_mutant(
                 j['id'], j['p_list'], j['pb_list_mut'], j['enz'], flank,
                 j['ins_rec'], j['mode'],
-                j['pa'], j['pb'], topo)
+                j['pa'], j['pb'], topo,
+                out_fname=mut_base, issues=issues)
             if mut_res:
                 buf = StringIO(); SeqIO.write(mut_res, buf, "genbank")
                 zf.writestr(f"{mut_fname}.gb", buf.getvalue())
                 success += 1
             else:
-                errors.append(f"❌ {j['id']} MUT 작업 실패: {mut_err}")
+                errors.append(f"❌ {make_ctx(j['id'], 'MUT', mut_base)} 작업 실패: {mut_err}")
 
     progress.empty()
-    return success, errors
+    return success, errors, issues
+
+
+def show_issue_summary(issues):
+    """실행이 끝난 뒤 누적된 경고를 표로 요약한다."""
+    if not issues:
+        return
+    st.divider()
+    st.subheader(f"📋 처리 결과 요약 — 확인이 필요한 항목 {len(issues)}건")
+    st.dataframe(pd.DataFrame(issues), use_container_width=True, hide_index=True)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -496,13 +543,14 @@ with tab_main:
                 }
                 zip_buf = BytesIO()
                 with zipfile.ZipFile(zip_buf, "a") as zf:
-                    success, errors = write_records_to_zip(zf, [job], flank_size, topology, zip_structure)
+                    success, errors, issues = write_records_to_zip(zf, [job], flank_size, topology, zip_structure)
                 
                 if success:
                     now = datetime.now(KST).strftime("%Y%m%d_%H%M")
                     st.success(f"✅ 총 {success}개의 파일 생성이 완료되었습니다. (Topology: {topology})")
                     st.download_button(f"📥 다운로드 ({now})", zip_buf.getvalue(), f"Results_{now}.zip")
                 for e in errors: st.write(e)
+                show_issue_summary(issues)
 
 
     # ───────────────────────────────────────────────────────────────────────────
@@ -628,12 +676,13 @@ with tab_main:
                 }
                 zip_buf = BytesIO()
                 with zipfile.ZipFile(zip_buf, "a") as zf:
-                    success, errors = write_records_to_zip(zf, [job], flank_size, topology, zip_structure)
+                    success, errors, issues = write_records_to_zip(zf, [job], flank_size, topology, zip_structure)
                 if success:
                     now = datetime.now(KST).strftime("%Y%m%d_%H%M")
                     st.success(f"✅ 총 {success}개의 파일 생성이 완료되었습니다. (Topology: {topology})")
                     st.download_button(f"📥 다운로드 ({now})", zip_buf.getvalue(), f"Results_{now}.zip")
                 for e in errors: st.write(e)
+                show_issue_summary(issues)
 
     # ───────────────────────────────────────────────────────────────────────────
     # 3. 엑셀 일괄 업로드
@@ -740,12 +789,13 @@ with tab_main:
                     if jobs:
                         zip_buf = BytesIO()
                         with zipfile.ZipFile(zip_buf, "a") as zf:
-                            success, errors = write_records_to_zip(zf, jobs, flank_size, topology, zip_structure)
+                            success, errors, issues = write_records_to_zip(zf, jobs, flank_size, topology, zip_structure)
                         if success:
                             now = datetime.now(KST).strftime("%Y%m%d_%H%M")
                             st.success(f"✅ 총 {success}개의 파일 생성이 완료되었습니다. (Topology: {topology})")
                             st.download_button(f"📥 다운로드 ({now})", zip_buf.getvalue(), f"Results_{now}.zip")
                         for e in errors: st.write(e)
+                        show_issue_summary(issues)
 
                 except Exception as ex:
                     st.error(f"엑셀 데이터 처리 오류: {ex}")
